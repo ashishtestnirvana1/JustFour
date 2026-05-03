@@ -1,0 +1,44 @@
+# JustFour — Caddy reverse proxy config
+# Auto-provisions and renews Let's Encrypt TLS — no cert management needed.
+
+justfour.ai {
+    reverse_proxy app:3000 {
+        # Keep connections alive to the Next.js app
+        transport http {
+            keepalive 30s
+            keepalive_idle_conns 10
+        }
+
+        # Pass real client IP through
+        header_up X-Real-IP {remote_host}
+        header_up X-Forwarded-For {remote_host}
+        header_up X-Forwarded-Proto {scheme}
+    }
+
+    # Security headers
+    header {
+        X-Frame-Options "DENY"
+        X-Content-Type-Options "nosniff"
+        Referrer-Policy "strict-origin"
+        X-XSS-Protection "1; mode=block"
+        -Server
+    }
+
+    # Long cache for Next.js hashed static assets
+    @static path /_next/static/*
+    header @static Cache-Control "public, max-age=31536000, immutable"
+
+    # Health check endpoint (used by docker-compose healthcheck)
+    respond /healthz 200
+
+    # Logging
+    log {
+        output stdout
+        format console
+    }
+}
+
+# Redirect www → apex
+www.justfour.ai {
+    redir https://justfour.ai{uri} permanent
+}
