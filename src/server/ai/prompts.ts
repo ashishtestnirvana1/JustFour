@@ -50,9 +50,12 @@ The JSON must conform exactly to this structure:
   "focus_wall": [
     {
       "id": "fw_1",
-      "goal": "string — specific, actionable goal for this week",
+      "title": "string — short name for this focus area (2–4 words, e.g. 'Prototype', 'Co-founder')",
+      "subtitle": "string — one-line action framing (e.g. 'Get something that moves')",
+      "context": "string — one paragraph explaining WHY this is the priority right now, given the founder's stage",
       "tag": "Product | Team | Revenue | Operations",
-      "tasks": ["string", "string", "string"]
+      "tasks": ["string", "string", "string"],
+      "goal": "string — optional measurable outcome by end of week (e.g. 'Robot moves by day 30')"
     }
   ],
   "parking_lot": {
@@ -69,7 +72,7 @@ The JSON must conform exactly to this structure:
 
 Rules:
 - focus_wall: minimum 2, maximum 4 items
-- Each focus item must have exactly 3 tasks
+- Each focus item must have exactly 3 tasks; goal is optional but encouraged
 - parking_lot: all 5 categories must be present (empty array if nothing parked)
 - this_week: 3–6 tasks, drawn from the focus wall tasks
 - Tags must be exactly one of: Product, Team, Revenue, Operations

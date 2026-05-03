@@ -34,9 +34,12 @@ export interface Message {
 
 export interface FocusItem {
   id: string
-  goal: string
+  title: string
+  subtitle: string
+  context: string
   tag: Tag
   tasks: string[]
+  goal?: string
 }
 
 export interface ParkedItem {

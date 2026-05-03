@@ -57,14 +57,38 @@ export async function POST(req: Request) {
       else console.log('[chat/POST] user message saved', { sessionId, stage, contentLength: lastUserMsg.content.length })
     }
 
+    // Fetch the brain dump (stage 2) to prepend as context for Claude
+    const { data: brainDumpRow } = await supabase
+      .from('messages')
+      .select('content')
+      .eq('session_id', sessionId)
+      .eq('stage', 2)
+      .eq('role', 'user')
+      .order('created_at', { ascending: true })
+      .limit(1)
+      .single()
+
+    // Build the message array Claude receives:
+    // [brain dump as first user message] + [stage 3 conversation]
+    // The brain dump is hidden from the UI but Claude needs it for context.
+    const messagesForClaude = brainDumpRow
+      ? [{ role: 'user' as const, content: brainDumpRow.content }, ...messages]
+      : messages
+
+    if (brainDumpRow) {
+      console.log('[chat/POST] prepended brain dump', { sessionId, brainDumpLength: brainDumpRow.content.length })
+    } else {
+      console.warn('[chat/POST] no brain dump found — Claude has no initial context', { sessionId })
+    }
+
     const systemPrompt = buildChallengePrompt(session.context as SessionContext)
-    console.log('[chat/POST] streaming to Claude', { sessionId, stage, systemPromptLength: systemPrompt.length })
+    console.log('[chat/POST] streaming to Claude', { sessionId, stage, systemPromptLength: systemPrompt.length, totalMessages: messagesForClaude.length })
 
     const result = streamText({
       model: anthropic('claude-opus-4-5'),
       system: systemPrompt,
-      messages,
-      maxTokens: 1500,
+      messages: messagesForClaude,
+      maxTokens: 4000,
       onError: ({ error }) => {
         console.error('[chat/streamText] Anthropic API error', {
           sessionId,
@@ -74,6 +98,10 @@ export async function POST(req: Request) {
       },
       onFinish: async ({ text, usage }) => {
         console.log('[chat/onFinish]', { sessionId, stage, completionTokens: usage.completionTokens, responseLength: text.length })
+        if (stage === 3) {
+          console.log('[chat/onFinish] stage3 response tail (last 500 chars):', text.slice(-500))
+          console.log('[chat/onFinish] contains dashboard block:', text.includes('```dashboard'))
+        }
 
         const { error: assistantInsertError } = await supabase.from('messages').insert({
           session_id: sessionId,

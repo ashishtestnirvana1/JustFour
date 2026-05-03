@@ -10,7 +10,7 @@ export const MAX_FOCUS_ITEMS = 4
 export const MIN_FOCUS_ITEMS = 2
 export const MIN_BRAIN_DUMP_IDEAS = 5
 export const MAX_MESSAGES_PER_SESSION = 50
-export const MAX_TOKENS_PER_RESPONSE = 1500
+export const MAX_TOKENS_PER_RESPONSE = 4000
 
 export const CATEGORIES = [
   {

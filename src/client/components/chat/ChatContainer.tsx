@@ -1,6 +1,7 @@
-﻿'use client'
+'use client'
 
 import { useEffect, useRef, useState } from 'react'
+// eslint-disable-next-line @typescript-eslint/no-deprecated
 import { useChat } from 'ai/react'
 import { useRouter } from 'next/navigation'
 import type { Message } from '@/shared/types'
@@ -18,28 +19,37 @@ export default function ChatContainer({ sessionId, initialMessages, stage }: Pro
   const router = useRouter()
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const [inputText, setInputText] = useState('')
   const [errorVariant, setErrorVariant] = useState<ErrorVariant | null>(null)
   const [errorCount, setErrorCount] = useState(0)
-  const [navigating, setNavigating] = useState(false)
+  const [dashboardReady, setDashboardReady] = useState(false)
 
-  const { messages, input, setInput, append, isLoading, error } = useChat({
+  const { messages, append, status } = useChat({
     api: '/api/chat',
     body: { sessionId, stage },
     initialMessages: initialMessages.map(m => ({
       id: m.id,
       role: m.role as 'user' | 'assistant',
       content: m.content,
+      parts: [{ type: 'text' as const, text: m.content }],
     })),
-    onFinish: async (message) => {
-      console.log('[ChatContainer] stream finished', { sessionId, contentLength: message.content.length, hasDashboard: message.content.includes('```dashboard') })
+    onFinish: (message) => {
+      console.log('[ChatContainer] stream finished', {
+        sessionId,
+        contentLength: message.content.length,
+        hasDashboard: message.content.includes('```dashboard'),
+      })
       if (message.content.includes('```dashboard')) {
-        console.log('[ChatContainer] dashboard block received, navigating to /dashboard')
-        setNavigating(true)
-        router.push('/dashboard')
+        console.log('[ChatContainer] dashboard ready, showing CTA')
+        setDashboardReady(true)
       }
     },
     onError: (err) => {
-      console.error('[ChatContainer] stream error', { sessionId, message: err.message, status: (err as { status?: number }).status })
+      console.error('[ChatContainer] stream error', {
+        sessionId,
+        message: err.message,
+        status: (err as { status?: number }).status,
+      })
       setErrorCount(prev => {
         const next = prev + 1
         console.warn('[ChatContainer] error count', { count: next })
@@ -52,6 +62,8 @@ export default function ChatContainer({ sessionId, initialMessages, stage }: Pro
     },
   })
 
+  const isLoading = status === 'streaming' || status === 'submitted'
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isLoading])
@@ -61,12 +73,12 @@ export default function ChatContainer({ sessionId, initialMessages, stage }: Pro
   }, [isLoading])
 
   const handleSend = () => {
-    const trimmed = input.trim()
-    if (!trimmed || isLoading || navigating) return
+    const trimmed = inputText.trim()
+    if (!trimmed || isLoading || dashboardReady) return
     console.log('[ChatContainer] sending message', { sessionId, contentLength: trimmed.length })
     setErrorVariant(null)
     append({ role: 'user', content: trimmed })
-    setInput('')
+    setInputText('')
   }
 
   const handleKeyDown = (e: React.KeyboardEvent<HTMLTextAreaElement>) => {
@@ -80,29 +92,6 @@ export default function ChatContainer({ sessionId, initialMessages, stage }: Pro
     setErrorVariant(null)
     const lastUser = [...messages].reverse().find(m => m.role === 'user')
     if (lastUser) append({ role: 'user', content: lastUser.content })
-  }
-
-  if (navigating) {
-    return (
-      <div style={{
-        display: 'flex', alignItems: 'center', justifyContent: 'center',
-        minHeight: 'calc(100vh - 65px)',
-        fontFamily: "'Outfit', sans-serif", fontSize: 15, color: '#047857',
-      }}>
-        <div style={{ textAlign: 'center' }}>
-          <div style={{ marginBottom: 16 }}>Building your focus plan...</div>
-          <div style={{ display: 'flex', justifyContent: 'center', gap: 4 }}>
-            {[0, 1, 2].map(i => (
-              <div key={i} style={{
-                width: 6, height: 6, borderRadius: '50%', backgroundColor: '#047857',
-                animation: `pulse 1.4s ease-in-out ${i * 0.2}s infinite`,
-              }} />
-            ))}
-          </div>
-        </div>
-        <style>{`@keyframes pulse { 0%,80%,100%{opacity:.3;transform:scale(.8)} 40%{opacity:1;transform:scale(1)} }`}</style>
-      </div>
-    )
   }
 
   return (
@@ -120,68 +109,102 @@ export default function ChatContainer({ sessionId, initialMessages, stage }: Pro
             onDismiss={() => setErrorVariant(null)}
           />
         )}
+
+        {/* Dashboard ready — per constitution: show button, no auto-redirect */}
+        {dashboardReady && (
+          <div style={{
+            margin: '24px 0', padding: '24px', backgroundColor: '#F0FDF4',
+            border: '1px solid #BBF7D0', borderRadius: 12, textAlign: 'center',
+          }}>
+            <div style={{
+              fontFamily: "'Libre Baskerville', serif", fontSize: 18, fontWeight: 700,
+              color: '#14532D', marginBottom: 8, letterSpacing: '-0.02em',
+            }}>
+              Your dashboard is ready.
+            </div>
+            <div style={{
+              fontFamily: "'Outfit', sans-serif", fontSize: 14, color: '#166534',
+              marginBottom: 20, lineHeight: 1.5,
+            }}>
+              Four things. This week. That's it.
+            </div>
+            <button
+              onClick={() => router.push('/dashboard')}
+              style={{
+                padding: '12px 28px', backgroundColor: '#14532D', color: '#FFFFFF',
+                border: 'none', borderRadius: 10, cursor: 'pointer',
+                fontFamily: "'Outfit', sans-serif", fontSize: 15, fontWeight: 600,
+                letterSpacing: '-0.01em', transition: 'background-color 0.15s ease',
+              }}
+              onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#166534' }}
+              onMouseLeave={e => { e.currentTarget.style.backgroundColor = '#14532D' }}
+            >
+              View your dashboard →
+            </button>
+          </div>
+        )}
+
         <div ref={bottomRef} />
       </div>
 
-      {/* Fixed input bar */}
-      <div style={{
-        position: 'fixed', bottom: 0, left: 0, right: 0,
-        backgroundColor: 'rgba(247, 246, 243, 0.95)',
-        backdropFilter: 'blur(12px)',
-        borderTop: '1px solid #E2E1DC',
-      }}>
-        <div style={{ maxWidth: 640, margin: '0 auto', padding: '12px 20px 22px' }}>
-          <div style={{
-            display: 'flex', gap: 10, alignItems: 'flex-end',
-            backgroundColor: '#FFFFFF', border: '1px solid #E2E1DC',
-            borderRadius: 12, padding: '10px 12px',
-            transition: 'border-color 0.15s ease',
-          }}
-            onFocus={() => {}}
-          >
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={e => {
-                setInput(e.target.value)
-                e.target.style.height = 'auto'
-                e.target.style.height = Math.min(140, e.target.scrollHeight) + 'px'
-              }}
-              onKeyDown={handleKeyDown}
-              placeholder="Type your response..."
-              disabled={isLoading || navigating}
-              rows={1}
-              style={{
-                flex: 1, border: 'none', outline: 'none', resize: 'none',
-                fontFamily: "'Outfit', sans-serif", fontSize: 14, color: '#1A1A1A',
-                lineHeight: 1.5, backgroundColor: 'transparent',
-                maxHeight: 140, overflowY: 'auto',
-                opacity: isLoading ? 0.5 : 1,
-              }}
-            />
-            <button
-              onClick={handleSend}
-              disabled={!input.trim() || isLoading || navigating}
-              style={{
-                width: 36, height: 36, borderRadius: 9, border: 'none', flexShrink: 0,
-                backgroundColor: input.trim() && !isLoading ? '#1A1A1A' : '#E2E1DC',
-                color: input.trim() && !isLoading ? '#FFFFFF' : '#9B9B9B',
-                cursor: input.trim() && !isLoading ? 'pointer' : 'default',
-                display: 'flex', alignItems: 'center', justifyContent: 'center',
-                fontSize: 16, transition: 'all 0.15s ease',
-              }}
-              onMouseEnter={e => { if (input.trim() && !isLoading) e.currentTarget.style.backgroundColor = '#333333' }}
-              onMouseLeave={e => { if (input.trim() && !isLoading) e.currentTarget.style.backgroundColor = '#1A1A1A' }}
-            >↑</button>
-          </div>
-          <div style={{
-            fontFamily: "'Outfit', sans-serif", fontSize: 12, color: '#C4C3BE',
-            textAlign: 'center', marginTop: 8,
-          }}>
-            Enter to send · Shift+Enter for new line
+      {/* Fixed input bar — hidden once dashboard is ready */}
+      {!dashboardReady && (
+        <div style={{
+          position: 'fixed', bottom: 0, left: 0, right: 0,
+          backgroundColor: 'rgba(247, 246, 243, 0.95)',
+          backdropFilter: 'blur(12px)',
+          borderTop: '1px solid #E2E1DC',
+        }}>
+          <div style={{ maxWidth: 640, margin: '0 auto', padding: '12px 20px 22px' }}>
+            <div style={{
+              display: 'flex', gap: 10, alignItems: 'flex-end',
+              backgroundColor: '#FFFFFF', border: '1px solid #E2E1DC',
+              borderRadius: 12, padding: '10px 12px',
+            }}>
+              <textarea
+                ref={inputRef}
+                value={inputText}
+                onChange={e => {
+                  setInputText(e.target.value)
+                  e.target.style.height = 'auto'
+                  e.target.style.height = Math.min(140, e.target.scrollHeight) + 'px'
+                }}
+                onKeyDown={handleKeyDown}
+                placeholder={errorVariant === 'persistent' ? 'Conversation paused' : 'Type your response...'}
+                disabled={isLoading || errorVariant === 'persistent'}
+                rows={1}
+                style={{
+                  flex: 1, border: 'none', outline: 'none', resize: 'none',
+                  fontFamily: "'Outfit', sans-serif", fontSize: 14, color: '#1A1A1A',
+                  lineHeight: 1.5, backgroundColor: 'transparent',
+                  maxHeight: 140, overflowY: 'auto',
+                  opacity: isLoading ? 0.5 : 1,
+                }}
+              />
+              <button
+                onClick={handleSend}
+                disabled={!inputText.trim() || isLoading || errorVariant === 'persistent'}
+                style={{
+                  width: 36, height: 36, borderRadius: 9, border: 'none', flexShrink: 0,
+                  backgroundColor: inputText.trim() && !isLoading ? '#1A1A1A' : '#E2E1DC',
+                  color: inputText.trim() && !isLoading ? '#FFFFFF' : '#9B9B9B',
+                  cursor: inputText.trim() && !isLoading ? 'pointer' : 'default',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  fontSize: 16, transition: 'all 0.15s ease',
+                }}
+                onMouseEnter={e => { if (inputText.trim() && !isLoading) e.currentTarget.style.backgroundColor = '#333333' }}
+                onMouseLeave={e => { if (inputText.trim() && !isLoading) e.currentTarget.style.backgroundColor = '#1A1A1A' }}
+              >↑</button>
+            </div>
+            <div style={{
+              fontFamily: "'Outfit', sans-serif", fontSize: 12, color: '#C4C3BE',
+              textAlign: 'center', marginTop: 8,
+            }}>
+              {errorVariant === 'persistent' ? 'Conversation paused' : 'Enter to send · Shift+Enter for new line'}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   )
 }

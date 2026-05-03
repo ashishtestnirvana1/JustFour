@@ -2,9 +2,12 @@ import { z } from 'zod'
 
 const FocusItemSchema = z.object({
   id: z.string(),
-  goal: z.string(),
+  title: z.string(),
+  subtitle: z.string(),
+  context: z.string(),
   tag: z.enum(['Product', 'Team', 'Revenue', 'Operations']),
   tasks: z.array(z.string()).length(3),
+  goal: z.string().optional(),
 })
 
 const ParkedItemSchema = z.object({

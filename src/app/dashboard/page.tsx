@@ -28,9 +28,7 @@ export default async function DashboardPage() {
       <TopBar variant="dashboard" email={user.email ?? ''} />
 
       <div style={{ maxWidth: 640, margin: '0 auto', padding: '28px 20px 80px' }}>
-        {parkedCount >= 5 && (
-          <TrapAlert message={`You parked ${parkedCount} items this week. That's a signal — make sure your focus wall reflects your actual constraints, not just ambition.`} />
-        )}
+        <TrapAlert parkedCount={parkedCount} />
         <FocusWall items={dashboard.focus_wall} />
         <ParkingLot data={dashboard.parking_lot} totalCount={parkedCount} />
         <ContinueConversationStub />
