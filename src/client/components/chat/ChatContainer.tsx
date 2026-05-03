@@ -30,14 +30,18 @@ export default function ChatContainer({ sessionId, initialMessages }: Props) {
       content: m.content,
     })),
     onFinish: async (message) => {
+      console.log('[ChatContainer] stream finished', { sessionId, contentLength: message.content.length, hasDashboard: message.content.includes('```dashboard') })
       if (message.content.includes('```dashboard')) {
+        console.log('[ChatContainer] dashboard block received, navigating to /dashboard')
         setNavigating(true)
         router.push('/dashboard')
       }
     },
     onError: (err) => {
+      console.error('[ChatContainer] stream error', { sessionId, message: err.message, status: (err as { status?: number }).status })
       setErrorCount(prev => {
         const next = prev + 1
+        console.warn('[ChatContainer] error count', { count: next })
         if (next >= 3) setErrorVariant('persistent')
         else if (err.message?.includes('rate')) setErrorVariant('rate_limit')
         else if (err.message?.includes('stream')) setErrorVariant('stream_drop')
@@ -58,6 +62,7 @@ export default function ChatContainer({ sessionId, initialMessages }: Props) {
   const handleSend = () => {
     const trimmed = input.trim()
     if (!trimmed || isLoading || navigating) return
+    console.log('[ChatContainer] sending message', { sessionId, contentLength: trimmed.length })
     setErrorVariant(null)
     append({ role: 'user', content: trimmed })
     setInput('')

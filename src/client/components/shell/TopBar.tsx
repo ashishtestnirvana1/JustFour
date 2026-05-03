@@ -28,7 +28,10 @@ export default function TopBar({ variant = 'public', email = '', onStartOver }: 
   const isLoggedIn = variant !== 'public'
 
   const handleLogout = async () => {
-    await supabase.auth.signOut()
+    console.log('[TopBar] signing out', { email })
+    const { error } = await supabase.auth.signOut()
+    if (error) console.error('[TopBar] signOut error', { message: error.message })
+    else console.log('[TopBar] signed out successfully')
     router.push('/')
     router.refresh()
   }

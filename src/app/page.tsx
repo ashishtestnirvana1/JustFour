@@ -27,10 +27,19 @@ export default function HomePage() {
         email,
         options: { emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` },
       })
-      if (error) throw error
+      if (error) {
+        console.error('[signInWithOtp] error:', { message: error.message, status: error.status, name: error.name })
+        throw error
+      }
+      console.log('[signInWithOtp] magic link sent to', email)
       setSubmitted(true)
-    } catch {
-      setEmailError('Something went wrong. Try again.')
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err)
+      if (msg.toLowerCase().includes('rate') || msg.toLowerCase().includes('too many')) {
+        setEmailError('Too many attempts. Wait a few minutes and try again.')
+      } else {
+        setEmailError(`Something went wrong: ${msg}`)
+      }
     } finally {
       setSubmitting(false)
     }
@@ -164,10 +173,12 @@ export default function HomePage() {
             <MagicLinkSent
               email={email}
               onResend={async () => {
-                await supabase.auth.signInWithOtp({
+                const { error } = await supabase.auth.signInWithOtp({
                   email,
                   options: { emailRedirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback` },
                 })
+                if (error) console.error('[signInWithOtp resend] error:', { message: error.message, status: error.status })
+                else console.log('[signInWithOtp resend] resent to', email)
               }}
               onChangeEmail={() => {
                 setSubmitted(false)

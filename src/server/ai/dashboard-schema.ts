@@ -35,7 +35,23 @@ export type ValidatedDashboard = z.infer<typeof DashboardSchema>
 
 export function extractDashboardJSON(aiResponse: string): ValidatedDashboard {
   const match = aiResponse.match(/```dashboard\n([\s\S]*?)\n```/)
-  if (!match) throw new Error('No dashboard JSON block found in AI response')
-  const parsed = JSON.parse(match[1])
-  return DashboardSchema.parse(parsed)
+  if (!match) {
+    console.error('[extractDashboardJSON] no ```dashboard block found in AI response', { responseLength: aiResponse.length, tail: aiResponse.slice(-200) })
+    throw new Error('No dashboard JSON block found in AI response')
+  }
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(match[1])
+  } catch (jsonErr) {
+    console.error('[extractDashboardJSON] JSON.parse failed', { error: jsonErr instanceof Error ? jsonErr.message : jsonErr, raw: match[1].slice(0, 300) })
+    throw jsonErr
+  }
+  try {
+    const result = DashboardSchema.parse(parsed)
+    console.log('[extractDashboardJSON] validation passed', { focusItems: result.focus_wall.length, thisWeekTasks: result.this_week.length })
+    return result
+  } catch (zodErr) {
+    console.error('[extractDashboardJSON] zod validation failed', { error: zodErr instanceof Error ? zodErr.message : zodErr })
+    throw zodErr
+  }
 }

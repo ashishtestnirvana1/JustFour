@@ -25,16 +25,22 @@ export default function OnboardClient({ session: initialSession, messages, userE
   const supabase = createClient()
 
   const updateStage = useCallback(async (newStage: number, newContext?: SessionContext) => {
+    console.log('[OnboardClient] updateStage', { sessionId, from: stage, to: newStage, hasContext: !!newContext })
     const updates: Record<string, unknown> = { stage: newStage }
     if (newContext) updates.context = newContext
-    await supabase.from('sessions').update(updates).eq('id', sessionId)
+    const { error } = await supabase.from('sessions').update(updates).eq('id', sessionId)
+    if (error) console.error('[OnboardClient] updateStage failed', { sessionId, error: error.message })
     setStage(newStage)
-  }, [sessionId, supabase])
+  }, [sessionId, supabase, stage])
 
   const handleStartOver = useCallback(async () => {
-    await supabase.from('messages').delete().eq('session_id', sessionId)
-    await supabase.from('dashboards').delete().eq('session_id', sessionId)
-    await supabase.from('sessions').update({ stage: 0, context: {} }).eq('id', sessionId)
+    console.log('[OnboardClient] startOver', { sessionId })
+    const { error: msgError } = await supabase.from('messages').delete().eq('session_id', sessionId)
+    if (msgError) console.error('[OnboardClient] messages delete failed', { error: msgError.message })
+    const { error: dashError } = await supabase.from('dashboards').delete().eq('session_id', sessionId)
+    if (dashError) console.error('[OnboardClient] dashboards delete failed', { error: dashError.message })
+    const { error: sessionError } = await supabase.from('sessions').update({ stage: 0, context: {} }).eq('id', sessionId)
+    if (sessionError) console.error('[OnboardClient] session reset failed', { error: sessionError.message })
     setStage(0)
     setShowBanner(false)
     router.refresh()
@@ -72,13 +78,14 @@ export default function OnboardClient({ session: initialSession, messages, userE
         <BrainDumpArea
           sessionId={sessionId}
           onDone={async (text) => {
-            // Save brain dump as a user message
-            await supabase.from('messages').insert({
+            console.log('[OnboardClient] brain dump submitted', { sessionId, length: text.length })
+            const { error } = await supabase.from('messages').insert({
               session_id: sessionId,
               role: 'user',
               content: text,
               stage: 2,
             })
+            if (error) console.error('[OnboardClient] brain dump message insert failed', { error: error.message })
             await updateStage(3)
           }}
         />

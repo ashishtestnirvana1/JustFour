@@ -24,15 +24,32 @@ export async function updateSession(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const { data: { user }, error } = await supabase.auth.getUser()
+
+  // Stale or invalid refresh token — clear the session cookies and redirect home
+  if (error?.message?.includes('Refresh Token')) {
+    console.warn('[middleware] stale refresh token, clearing cookies and redirecting', { path: request.nextUrl.pathname, error: error.message })
+    const url = request.nextUrl.clone()
+    url.pathname = '/'
+    const redirectResponse = NextResponse.redirect(url)
+    request.cookies.getAll()
+      .filter(c => c.name.startsWith('sb-'))
+      .forEach(c => redirectResponse.cookies.delete(c.name))
+    return redirectResponse
+  }
 
   const path = request.nextUrl.pathname
   const isProtected = path.startsWith('/onboard') || path.startsWith('/dashboard')
 
   if (isProtected && !user) {
+    console.warn('[middleware] unauthenticated access to protected route, redirecting', { path })
     const url = request.nextUrl.clone()
     url.pathname = '/'
     return NextResponse.redirect(url)
+  }
+
+  if (user) {
+    console.log('[middleware] session valid', { userId: user.id, path })
   }
 
   return supabaseResponse
