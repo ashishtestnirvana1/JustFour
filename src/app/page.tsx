@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import { createClient } from '@/client/lib/supabase'
 import TopBar from '@/client/components/shell/TopBar'
 import MagicLinkSent from '@/client/components/auth/MagicLinkSent'
@@ -10,8 +11,23 @@ export default function HomePage() {
   const [emailError, setEmailError] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [submitted, setSubmitted] = useState(false)
+  const [checking, setChecking] = useState(true)
   const inputRef = useRef<HTMLInputElement>(null)
   const supabase = createClient()
+  const router = useRouter()
+
+  useEffect(() => {
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      if (session?.user) {
+        console.log('[HomePage] active session found, redirecting to /onboard', { userId: session.user.id })
+        router.replace('/onboard')
+      } else {
+        setChecking(false)
+      }
+    })
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  if (checking) return null
 
   const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e)
 

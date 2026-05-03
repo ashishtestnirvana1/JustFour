@@ -48,6 +48,14 @@ export async function updateSession(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
+  // Authenticated user landing on the login page — send them to their session
+  if (user && path === '/') {
+    console.log('[middleware] authenticated user on login page, redirecting to /onboard', { userId: user.id })
+    const url = request.nextUrl.clone()
+    url.pathname = '/onboard'
+    return NextResponse.redirect(url)
+  }
+
   if (user) {
     console.log('[middleware] session valid', { userId: user.id, path })
   }
