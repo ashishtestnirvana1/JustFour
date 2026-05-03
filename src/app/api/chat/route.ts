@@ -65,6 +65,13 @@ export async function POST(req: Request) {
       system: systemPrompt,
       messages,
       maxTokens: 1500,
+      onError: ({ error }) => {
+        console.error('[chat/streamText] Anthropic API error', {
+          sessionId,
+          error: error instanceof Error ? error.message : error,
+          name: error instanceof Error ? error.name : undefined,
+        })
+      },
       onFinish: async ({ text, usage }) => {
         console.log('[chat/onFinish]', { sessionId, stage, completionTokens: usage.completionTokens, responseLength: text.length })
 

@@ -95,6 +95,7 @@ export default function OnboardClient({ session: initialSession, messages, userE
         <ChatContainer
           sessionId={sessionId}
           initialMessages={messages}
+          stage={stage}
         />
       )}
     </div>

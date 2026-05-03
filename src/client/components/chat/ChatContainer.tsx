@@ -11,9 +11,10 @@ import ErrorToast, { ErrorVariant } from './ErrorToast'
 interface Props {
   sessionId: string
   initialMessages: Message[]
+  stage: number
 }
 
-export default function ChatContainer({ sessionId, initialMessages }: Props) {
+export default function ChatContainer({ sessionId, initialMessages, stage }: Props) {
   const router = useRouter()
   const bottomRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
@@ -23,7 +24,7 @@ export default function ChatContainer({ sessionId, initialMessages }: Props) {
 
   const { messages, input, setInput, append, isLoading, error } = useChat({
     api: '/api/chat',
-    body: { sessionId },
+    body: { sessionId, stage },
     initialMessages: initialMessages.map(m => ({
       id: m.id,
       role: m.role as 'user' | 'assistant',
