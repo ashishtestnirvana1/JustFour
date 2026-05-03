@@ -64,6 +64,18 @@ export default function ChatContainer({ sessionId, initialMessages, stage }: Pro
 
   const isLoading = status === 'streaming' || status === 'submitted'
 
+  // Auto-start: if no prior messages, trigger Claude to open with the brain dump in context
+  const didAutoStart = useRef(false)
+  useEffect(() => {
+    if (didAutoStart.current) return
+    if (initialMessages.length === 0) {
+      didAutoStart.current = true
+      console.log('[ChatContainer] no prior messages — auto-starting conversation', { sessionId })
+      append({ role: 'user', content: "Let's go through my list." })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages, isLoading])
