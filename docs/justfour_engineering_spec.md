@@ -52,15 +52,15 @@ graph LR
 
 | Layer | Choice | Why |
 |-------|--------|-----|
-| Framework | **Next.js 14+ (App Router)** | Streaming via Route Handlers, your dev knows it, Vercel-native |
-| Hosting | **Vercel** | Free tier for 20 users, auto-preview per branch, scales to 200/week without config change |
-| Database | **Supabase (Postgres)** | Free tier, Mumbai region (ap-south-1), magic link auth built-in, Row Level Security |
-| Auth | **Supabase Auth** | Magic link out of the box via Resend, JWT sessions, no passwords |
-| AI | **Anthropic API** (claude-sonnet-4-20250514) + **Vercel AI SDK** | `useChat` hook handles streaming, message format, retries |
-| Email | **Resend** | Free tier (3k/month), Supabase auth integration, React Email for templates later |
+| Framework | **Next.js 16 (App Router)** | Streaming via Route Handlers, instrumentation hook for startup init |
+| Hosting | **AWS EC2 t4g.micro + Docker Compose + Caddy** (~$8/month) — see `docs/aws-deployment-guide.md`. Vercel also works for serverless deploys. | EC2 gives persistent processes (required for in-memory rate limiting), Caddy handles auto-HTTPS |
+| Database | **Supabase (Postgres, `justfour` schema)** | Free tier, Mumbai region (ap-south-1), magic link auth built-in, Row Level Security. Schema auto-initialised on app startup via `instrumentation.ts`. |
+| Auth | **Supabase Auth** | Magic link out of the box via Resend SMTP (smtp.resend.com:465), JWT sessions, no passwords |
+| AI | **Anthropic API** (`claude-opus-4-5`) + **AI SDK** (`ai` package) | `useChat` from `ai/react` handles streaming; `streamText` on the server side |
+| Email | **Resend** | Free tier (3k/month), configured as Supabase SMTP provider |
 | Payments | **Razorpay** (Phase 1 only) | India-first, INR support. During validation: manual payment link + DB flag |
-| UI library | **Shadcn/ui** + **Tailwind CSS** | Unstyled components, no lock-in, standard in Next.js ecosystem |
-| State mgmt | **Zustand** | 1KB, handles multi-stage chat state without React Context hell |
+| UI library | **Custom CSS-in-JS** | Inline styles matching the design system tokens |
+| State mgmt | **React state + useChat** | `useChat` from `ai/react` manages message list and streaming state |
 | Markdown | **react-markdown** + **remark-gfm** | Renders AI responses (bold, lists, emphasis) — raw markdown in UI looks broken |
 
 ### What NOT to use
@@ -139,6 +139,8 @@ justfour/
 
 ### Full DDL
 
+All tables live in the **`justfour`** schema (not `public`). The schema and all tables are created automatically on app startup via `instrumentation.ts` → `src/server/db/init.ts`. The DDL is fully idempotent (`CREATE IF NOT EXISTS`, `DO $$ ... IF NOT EXISTS $$`). You do not need to run migrations manually.
+
 ```sql
 -- Enable UUID generation
 create extension if not exists "uuid-ossp";
@@ -148,7 +150,7 @@ create extension if not exists "uuid-ossp";
 -- Extended from Supabase auth.users. This table stores
 -- application-level user data only.
 -- ============================================================
-create table public.users (
+create table justfour.users (
   id            uuid primary key references auth.users(id) on delete cascade,
   email         text not null unique,
   first_name    text,                          -- Collected optionally at signup
@@ -269,7 +271,10 @@ create trigger dashboards_updated_at
 [
   {
     "id": "fw_1",
-    "goal": "Get a basic chassis moving on a flat surface",
+    "title": "Get the chassis moving",
+    "subtitle": "Hardware prototype — flat surface only",
+    "context": "You have no working prototype yet. This is the single most important unresolved question. Everything else depends on it.",
+    "goal": "A robot that drives across a flat floor by end of week",
     "tag": "Product",
     "tasks": [
       "Visit T-works and assess available hardware",
@@ -279,6 +284,8 @@ create trigger dashboards_updated_at
   }
 ]
 ```
+
+> **Note on FocusItem shape:** The `goal` field in the original spec has been expanded. Each focus item now has `title` (short card heading), `subtitle` (one-line descriptor), `context` (why this is on the wall — 1–2 sentences), and `goal` (optional specific outcome). See `src/shared/types/index.ts` for the TypeScript definition and `src/server/ai/dashboard-schema.ts` for the Zod schema.
 
 **`dashboards.parking_lot`** — object keyed by category:
 ```json
@@ -584,10 +591,10 @@ export async function POST(req: Request) {
 
   // 3. Stream response
   const result = streamText({
-    model: anthropic('claude-sonnet-4-20250514'),
+    model: anthropic('claude-opus-4-5'),
     system: systemPrompt,
-    messages,
-    maxTokens: 1500,  // Per-response ceiling
+    messages: messagesForClaude,  // Brain dump prepended — see below
+    maxTokens: 4000,  // Per-response ceiling — raised from 1500 to allow full dashboard JSON
     onFinish: async ({ text, usage }) => {
       // 4. Save assistant message to DB
       await saveMessage({
@@ -610,20 +617,44 @@ export async function POST(req: Request) {
 }
 ```
 
-**Frontend (Vercel AI SDK `useChat` hook):**
+**Brain dump prepend (critical for Stage 3 context):**
+
+The Stage 2 brain dump text is saved as a `user` message with `stage=2`. At Stage 3, the API route fetches it and prepends it to the messages array before sending to Claude. This ensures Claude always has the full context, even if the UI only shows Stage 3 messages.
+
+```typescript
+// In /api/chat — fetch brain dump and prepend
+const { data: brainDumpRow } = await supabase
+  .from('messages')
+  .select('content')
+  .eq('session_id', sessionId)
+  .eq('stage', 2)
+  .eq('role', 'user')
+  .order('created_at', { ascending: true })
+  .limit(1)
+  .single()
+
+const messagesForClaude = brainDumpRow
+  ? [{ role: 'user', content: brainDumpRow.content }, ...messages]
+  : messages
+```
+
+**Frontend (`useChat` from `ai/react`):**
+
+> **Important:** Use `useChat` from `ai/react` (the `ai` package), NOT from `@ai-sdk/react`. The `@ai-sdk/react` package has a completely different API and removes `setInput`, `input`, and the `append` signature. Importing from the wrong package causes `TypeError: setInput is not a function` and `TypeError: append is not a function`.
 
 ```typescript
 // In ChatContainer.tsx
-import { useChat } from 'ai/react';
+import { useChat } from 'ai/react';  // NOT from '@ai-sdk/react'
 
-const { messages, input, handleInputChange, handleSubmit, isLoading } = useChat({
+const { messages, append, status } = useChat({
   api: '/api/chat',
   body: { sessionId, stage },
-  onFinish: async (message) => {
-    // Save user message to DB (assistant message saved server-side)
-    await saveUserMessage(sessionId, stage, input);
-  },
+  initialMessages,
 });
+
+// Manage input with own state — do not rely on useChat's input/setInput
+const [inputText, setInputText] = useState('')
+const isLoading = status === 'streaming' || status === 'submitted'
 ```
 
 ### POST `/api/dashboard`
@@ -726,7 +757,10 @@ The JSON must conform exactly to this structure:
   "focus_wall": [
     {
       "id": "fw_1",
-      "goal": "string — specific, time-bound goal",
+      "title": "string — short heading (5–8 words)",
+      "subtitle": "string — one-line descriptor",
+      "context": "string — why this is on the wall (1–2 sentences)",
+      "goal": "string — optional specific outcome for the week",
       "tag": "Product | Team | Revenue | Operations",
       "tasks": ["string", "string", "string"]
     }
@@ -766,7 +800,10 @@ import { z } from 'zod';
 
 const FocusItemSchema = z.object({
   id: z.string(),
-  goal: z.string(),
+  title: z.string(),
+  subtitle: z.string(),
+  context: z.string(),
+  goal: z.string().optional(),
   tag: z.enum(['Product', 'Team', 'Revenue', 'Operations']),
   tasks: z.array(z.string()).length(3),
 });
@@ -808,7 +845,7 @@ export function extractDashboardJSON(aiResponse: string) {
 
 | Limit | Value | Enforced where |
 |-------|-------|---------------|
-| Max output tokens per AI response | 1,500 | `maxTokens` param in `streamText()` |
+| Max output tokens per AI response | 4,000 | `maxTokens` param in `streamText()` — must be high enough to fit the full dashboard JSON block |
 | Max total session tokens (all messages) | ~20,000 input + output combined | Soft limit — track via `messages.token_count` |
 | Max messages per session | 50 | Application code — after 50 messages, force dashboard generation |
 | Estimated cost per session | $0.10–0.20 | Monitoring only during validation |
@@ -1065,8 +1102,11 @@ SUPABASE_SERVICE_ROLE_KEY=eyJ...    # Server-side only, never expose to client
 # Anthropic
 ANTHROPIC_API_KEY=sk-ant-...
 
-# Resend (for magic link emails — configured in Supabase dashboard)
+# Resend (for magic link emails — configured in Supabase Auth → SMTP Settings)
 RESEND_API_KEY=re_...
+
+# Database (direct Postgres connection for schema init via pg package)
+DATABASE_URL=postgresql://postgres.[ref]:[password]@aws-0-[region].pooler.supabase.com:5432/postgres
 
 # App
 NEXT_PUBLIC_APP_URL=http://localhost:3000
@@ -1098,24 +1138,31 @@ npx supabase db push
 npm run dev
 ```
 
-### Production (Vercel)
+### Production (AWS EC2 + Docker Compose)
 
-1. Push to `main` branch on GitHub
-2. Vercel auto-deploys
-3. Preview deploys on every PR (automatic — use these for testing before merging)
+See **`docs/aws-deployment-guide.md`** for the full step-by-step guide. Summary:
+
+1. EC2 t4g.micro (ARM, ~$6/month) or t2.micro (free tier for 12 months)
+2. Docker Compose runs two containers: `justfour_app` (Next.js) + `justfour_caddy` (reverse proxy)
+3. Caddy auto-provisions TLS via Let's Encrypt — no cert management needed
+4. Deploy: `docker compose --env-file .env.production up -d --build`
+
+**Schema initialisation:** On first startup, `instrumentation.ts` calls `ensureSchema()` which creates the `justfour` schema and all tables if they don't exist. No manual SQL migration needed.
 
 ### Supabase setup
 
 1. Create a project on supabase.com — select **South Asia (Mumbai)** region
 2. Go to Authentication → Providers → Email → Enable magic link
-3. Go to Authentication → Email Templates → Customize the magic link email (optional but recommended — default template looks generic)
-4. Configure Resend as the email provider in Authentication → SMTP Settings
-5. Run the migration SQL from Section 4 in the SQL Editor
-6. Copy the project URL and anon key to `.env.local` and Vercel
+3. Configure Resend as the SMTP provider: **Authentication → SMTP Settings**
+   - Host: `smtp.resend.com`, Port: `465`, Username: `resend`, Password: your Resend API key
+4. Set Site URL and Redirect URLs: **Authentication → URL Configuration**
+   - Site URL: `https://justfour.ai`
+   - Redirect URLs: `https://justfour.ai/auth/callback`
+5. The `justfour` schema + tables are created automatically on app startup — no SQL Editor step needed
 
 ### Domain
 
-During validation: use the default Vercel URL (justfour.vercel.app or similar). Set up justfour.ai as a custom domain in Vercel before Phase 1 launch.
+**justfour.ai** — pointed to EC2 Elastic IP. Caddy handles HTTPS automatically.
 
 ---
 
@@ -1294,8 +1341,15 @@ Decisions made during planning that the engineer should know about, with rationa
 | 10 | Manual payment for validation | Building Razorpay webhooks for 20 free users is wasted engineering time. |
 | 11 | No separate staging environment | Vercel preview deploys per branch serve the same purpose for 20 users. Add a dedicated staging Supabase project before Phase 1. |
 | 12 | Static task list in MVP | Editable tasks with checkboxes, sub-items, and localStorage sync is Phase 2 scope. The AI generates the task list; the founder reads it. |
+| 13 | `useChat` from `ai/react`, not `@ai-sdk/react` | `@ai-sdk/react` removes `setInput`, changes `append` signature, and breaks existing patterns. `ai/react` is the stable API. Use `// eslint-disable-next-line @typescript-eslint/no-deprecated` if needed. |
+| 14 | Own input state in ChatContainer | `useChat`'s built-in `input`/`setInput` can return `undefined`. Using a separate `useState` for input text is more reliable. |
+| 15 | Brain dump prepended server-side, hidden from UI | Stage 3 UI only shows stage=3 messages (clean conversation). API route fetches the stage=2 brain dump from DB and prepends it to Claude's messages array. If missing, Claude has no context and produces a minimal response. |
+| 16 | Dashboard transition is a button, not auto-redirect | Constitution §11 decision #12: "Do NOT auto-navigate. The founder should feel the moment of transition." Shows a green "Your dashboard is ready." card with "View your dashboard →" button. |
+| 17 | `justfour` PostgreSQL schema, not `public` | Avoids polluting the Supabase public schema. Auto-created by `src/server/db/init.ts` on startup via `instrumentation.ts`. The `DATABASE_URL` env var is required for direct Postgres access during init. |
+| 18 | Middleware clears stale refresh tokens | `Invalid Refresh Token` errors from Supabase are caught in middleware: all `sb-*` cookies are cleared and the user is redirected to `/`. Authenticated users hitting `/` are immediately redirected to `/onboard`. |
+| 19 | Nginx replaced by Caddy | Caddy auto-provisions Let's Encrypt TLS, eliminating manual cert management. Simpler config, no `nginx.conf` to maintain. |
 
 ---
 
-*Document version: 1.0 · May 2026*
+*Document version: 1.1 · May 2026 — updated to reflect implementation*
 *Next review: after Sprint 2 completion — validate dashboard generation works end-to-end before proceeding.*

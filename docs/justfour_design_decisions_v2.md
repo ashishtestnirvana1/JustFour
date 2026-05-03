@@ -524,4 +524,38 @@ None. All screens from Homepage through Stage 4 are designed and locked. The des
 
 ---
 
+## Implementation Decisions (added post-build)
+
+These decisions were made during the engineering build phase and deviate from or extend the original design/eng spec.
+
+### Stage 4 — FocusItem card shape extended
+
+The original spec had a single `goal` field per focus item. The implementation uses:
+- `title` — short card heading (5–8 words)
+- `subtitle` — one-line descriptor  
+- `context` — why this item is on the wall (1–2 sentences)
+- `goal` — optional specific outcome for the week
+
+Cards display the title in the header, subtitle in muted text below, context as a paragraph, then tasks. If `goal` is present, it is shown with a "Goal" tag badge.
+
+### Stage 4 — TrapAlert uses parked item count, not custom message
+
+`TrapAlert` receives `parkedCount: number`. The copy is fixed: "If you are reading the parked section instead of doing the 4 focus items — close this tab and go do something." The subtext is dynamically generated: "{N} ideas parked. Not gone — just not this week."
+
+The alert is always rendered (even with 0 parked items) — the condition from the original spec (`parkedCount >= 5`) was removed.
+
+### Stage 4 — ContinueConversationStub click state
+
+Clicking the "Continue conversation" button does not navigate or open a modal. It replaces itself with: "Coming soon — reach out to hello@justfour.ai". This avoids a dead link while communicating Phase 2 intent.
+
+### Auth — Stale refresh token handling
+
+When Supabase returns `Invalid Refresh Token`, middleware clears all `sb-*` cookies and redirects to `/`. This prevents the error persisting across page loads. Authenticated users hitting `/` directly are redirected to `/onboard` — a deliberate routing layer in the middleware to ensure the homepage is never shown to logged-in users.
+
+### Resend SMTP — configuration location
+
+Magic link emails are sent via Resend, configured as a custom SMTP provider in Supabase Auth settings (`smtp.resend.com:465`). The Supabase default SMTP is not used. The `RESEND_API_KEY` env var is required server-side.
+
+---
+
 *Design is complete. This document plus the 4 mockup files above are the full bridge from design → engineering.*
