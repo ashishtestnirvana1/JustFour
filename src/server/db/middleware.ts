@@ -26,9 +26,9 @@ export async function updateSession(request: NextRequest) {
 
   const { data: { user }, error } = await supabase.auth.getUser()
 
-  // Stale or invalid refresh token — clear the session cookies and redirect home
-  if (error?.message?.includes('Refresh Token')) {
-    console.warn('[middleware] stale refresh token, clearing cookies and redirecting', { path: request.nextUrl.pathname, error: error.message })
+  // Any auth error (deleted user, stale/invalid token, expired session) — clear cookies and redirect home
+  if (error) {
+    console.warn('[middleware] auth error, clearing cookies and redirecting', { path: request.nextUrl.pathname, error: error.message })
     const url = request.nextUrl.clone()
     url.pathname = '/'
     const redirectResponse = NextResponse.redirect(url)

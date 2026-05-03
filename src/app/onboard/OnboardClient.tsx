@@ -26,12 +26,21 @@ export default function OnboardClient({ session: initialSession, messages, userE
 
   const updateStage = useCallback(async (newStage: number, newContext?: SessionContext) => {
     console.log('[OnboardClient] updateStage', { sessionId, from: stage, to: newStage, hasContext: !!newContext })
-    const updates: Record<string, unknown> = { stage: newStage }
-    if (newContext) updates.context = newContext
-    const { error } = await supabase.from('sessions').update(updates).eq('id', sessionId)
-    if (error) console.error('[OnboardClient] updateStage failed', { sessionId, error: error.message })
+    const body: Record<string, unknown> = { stage: newStage }
+    if (newContext) body.context = newContext
+    const res = await fetch('/api/session', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    if (!res.ok) {
+      const msg = await res.text()
+      console.error('[OnboardClient] updateStage failed', { sessionId, stage: newStage, error: msg })
+    } else {
+      console.log('[OnboardClient] updateStage ok', { sessionId, stage: newStage })
+    }
     setStage(newStage)
-  }, [sessionId, supabase, stage])
+  }, [sessionId, stage])
 
   const handleStartOver = useCallback(async () => {
     console.log('[OnboardClient] startOver', { sessionId })
